@@ -15,11 +15,9 @@
 # individual-file hashes below were captured from the live HF
 # repo at revision d22488bc83be87678f12eee8a3f65a65de94ef85.
 
-# Tarball sha256 populated by hf-mirror.yml CI run. Until the CI
-# workflow has run for this BINARY_TAG, this line is a TODO and
-# Build.rakumod's primary (GitHub Release) path will fail the
-# checksum check, dropping through to the HF fallback.
-0000000000000000000000000000000000000000000000000000000000000000  cohee-goemotions-binaries-cohee-goemotions-d22488bc-r1.tar.gz
+# Tarball sha256 produced by hf-mirror.yml CI run for
+# binaries-cohee-goemotions-d22488bc-r1.
+2257f061a740a4ad304d71e3ba70d2eff370d6cf5732003e4221364191774ca1  cohee-goemotions-binaries-cohee-goemotions-d22488bc-r1.tar.gz
 
 # Individual files (names match the layout inside the tarball AND
 # the filenames at HF, with onnx/model_quantized.onnx renamed to

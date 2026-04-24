@@ -2,6 +2,14 @@ Revision history for LLM::Classifiers::Emotions
 
 {{$NEXT}}
 
+0.1.2  2026-04-24T06:26:59+01:00
+    - resources/checksums.txt: populate the tarball sha256
+      produced by the first hf-mirror.yml run
+      (2257f061…74ca1). Was previously a placeholder of
+      zeros — macOS/Linux survived via the HF fallback path but
+      Windows failed to fall through cleanly, so the primary
+      path is the right one to make work on every platform.
+
 0.1.1  2026-04-24T06:10:52+01:00
     - META6: fix HuggingFace::API build-depends version spec.
       Was `ver<0.2.0+>` (invalid — the `+` suffix isn't part of
