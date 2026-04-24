@@ -2,6 +2,15 @@ Revision history for LLM::Classifiers::Emotions
 
 {{$NEXT}}
 
+0.1.1  2026-04-24T06:10:52+01:00
+    - META6: fix HuggingFace::API build-depends version spec.
+      Was `ver<0.2.0+>` (invalid — the `+` suffix isn't part of
+      Raku's identity syntax and zef couldn't resolve it). Now
+      `ver<0.2.0>`, matching the pinned-exact convention every
+      other module in the monorepo uses (Cro::HTTP:ver<0.8.11>,
+      JSON::Fast:ver<0.19>, etc.). Requires HuggingFace::API
+      0.2.0 to be published to the ecosystem.
+
 0.1.0  2026-04-24T06:02:15+01:00
     - Initial release.
     - Workflow triggers aligned with the CRoaring / Tokenizers /
