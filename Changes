@@ -1,0 +1,61 @@
+Revision history for LLM::Classifiers::Emotions
+
+{{$NEXT}}
+
+0.1.0  2026-04-24T06:02:15+01:00
+    - Initial release.
+    - Workflow triggers aligned with the CRoaring / Tokenizers /
+      ONNX-Native convention: hf-mirror.yml fires on
+      workflow_dispatch OR push of a `binaries-*` tag (releases
+      are deliberate, not incidental). Added pushed-tag-vs-
+      BINARY_TAG mismatch guard.
+    - .github/workflows/test.yml: runs `zef install .` + prove6
+      on macOS / Linux / Windows for every branch push and PR,
+      ignoring binaries-* tags so tag-push doesn't double-fire.
+      Matrix dimension `install-mode` exercises both the default
+      path (our Release primary, HuggingFace secondary) AND the
+      explicit `LLM_EMOTIONS_FROM_HF=1` backup path so both code
+      paths stay green.
+    - 28-way text emotion classifier built on ONNX::Native +
+      Tokenizers, backed by Cohee's quantized DistilBERT
+      go-emotions model on HuggingFace
+      (Cohee/distilbert-base-uncased-go-emotions-onnx at revision
+      d22488bc83be87678f12eee8a3f65a65de94ef85).
+    - Public class `LLM::Classifiers::Emotions::Classifier` with
+      `new`, `classify`, `top`, `labels`, `raw-logits`, `dispose`.
+      Softmax + argmax + top-k pipeline on top of the ONNX session;
+      returns a score-sorted `List[Hash]` or a single argmax label.
+    - Fully deterministic on the CPU execution provider —
+      bit-identical logits across runs for the same input on the
+      same ONNX Runtime version. Tests assert this invariant.
+    - CoreML supported via `:providers<coreml cpu>`; scores diverge
+      at the ~1e-3 level but the argmax label agrees with CPU.
+    - Build.rakumod stages the three model files
+      (tokenizer.json, config.json, model.onnx) under
+      $XDG_DATA_HOME/LLM-Classifiers-Emotions/<BINARY_TAG>/ at
+      install time. Primary download path: this repo's GitHub
+      Release. Fallback: direct HuggingFace download via
+      HuggingFace::API at the pinned revision.
+    - Input truncation: 512 tokens (DistilBERT's positional
+      embedding limit; Cohee's tokenizer.json has truncation
+      disabled, so the classifier handles it internally).
+    - Env knobs: LLM_EMOTIONS_BINARY_URL,
+      LLM_EMOTIONS_BINARY_ONLY, LLM_EMOTIONS_FROM_HF,
+      LLM_EMOTIONS_CACHE_DIR, LLM_EMOTIONS_DATA_DIR,
+      LLM_EMOTIONS_MODEL_DIR.
+    - Exceptions: X::LLM::Classifiers::Emotions::ModelMissing,
+      X::LLM::Classifiers::Emotions::InvalidConfig.
+    - New CI workflow: .github/workflows/hf-mirror.yml fetches
+      the three files from HuggingFace at the pinned revision,
+      sha256-verifies, bundles into
+      cohee-goemotions-<BINARY_TAG>.tar.gz, and publishes to a
+      GitHub Release on manual dispatch or BINARY_TAG change.
+    - Tests: t/01-smoke (constructor + labels + softmax invariant),
+      t/02-known-inputs (argmax + score bounds + determinism for
+      seven hand-picked inputs), t/03-edge-cases (empty string,
+      >512-token input, unicode / emoji, min-score threshold,
+      disposed-classifier error path, 50-iteration leak check).
+    - Upstream dep: HuggingFace::API 0.2.0+ (extended this release
+      with `get-file` / `get-file-blob` / `get-file-to-file` and
+      `:$revision` on existing tokenizer methods; back-compatible
+      with 0.1.x callers).

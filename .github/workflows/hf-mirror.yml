@@ -1,0 +1,151 @@
+# Mirrors Cohee's go-emotions model from HuggingFace into a
+# GitHub Release on this repo, so that `zef install` can pull
+# from content we host rather than depending on HF's CDN.
+#
+# Triggers (matching CRoaring / ONNX-Native convention):
+#   - workflow_dispatch (manual) — normal path while the recipe
+#     is being shaken down. Start here.
+#   - push: tags matching `binaries-*` — production path. Push a
+#     tag like `binaries-cohee-goemotions-d22488bc-r1` (matching
+#     the BINARY_TAG file) and CI produces the Release.
+#
+# Output artifacts on the GitHub Release (tagged with the
+# BINARY_TAG value):
+#   - cohee-goemotions-<BINARY_TAG>.tar.gz   # the three files flat
+#   - cohee-goemotions-<BINARY_TAG>.tar.gz.sha256
+#
+# After the Release is produced, the workflow prints the
+# tarball's sha256. Paste it into resources/checksums.txt
+# (the first line, which is the tarball-sha line) and commit.
+# Build.rakumod's primary path will then verify + succeed on
+# installs that don't set LLM_EMOTIONS_FROM_HF=1.
+
+name: Mirror Cohee go-emotions from HuggingFace
+
+on:
+  workflow_dispatch:
+
+  push:
+    tags:
+      - 'binaries-*'
+
+permissions:
+  contents: write   # needed for creating releases
+
+env:
+  HF_MODEL_ID: Cohee/distilbert-base-uncased-go-emotions-onnx
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Read BINARY_TAG and REVISION
+        id: pins
+        run: |
+          set -euo pipefail
+          BINARY_TAG=$(tr -d '\n' < BINARY_TAG | xargs)
+          REVISION=$(tr -d '\n' < resources/REVISION | xargs)
+          if [ -z "$BINARY_TAG" ] || [ -z "$REVISION" ]; then
+            echo "::error::BINARY_TAG or resources/REVISION is empty"
+            exit 1
+          fi
+
+          # On tag-push builds, refuse to release if the pushed
+          # tag doesn't match the BINARY_TAG file. Matches the
+          # ONNX-Native / CRoaring convention — forces the commit
+          # bump + tag push to be coherent.
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            pushed=${GITHUB_REF#refs/tags/}
+            if [[ "$pushed" != "$BINARY_TAG" ]]; then
+              echo "::error::Pushed tag '$pushed' doesn't match BINARY_TAG file '$BINARY_TAG'."
+              echo "::error::Update BINARY_TAG and commit, or push the matching tag."
+              exit 1
+            fi
+          fi
+
+          echo "binary_tag=$BINARY_TAG" >> "$GITHUB_OUTPUT"
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+          echo "Binary tag: $BINARY_TAG"
+          echo "Revision:   $REVISION"
+
+      - name: Download files from HuggingFace
+        env:
+          REVISION: ${{ steps.pins.outputs.revision }}
+        run: |
+          mkdir -p staged
+          BASE="https://huggingface.co/${HF_MODEL_ID}/resolve/${REVISION}"
+          set -euxo pipefail
+          curl -fL -o staged/tokenizer.json "$BASE/tokenizer.json"
+          curl -fL -o staged/config.json    "$BASE/config.json"
+          curl -fL -o staged/model.onnx     "$BASE/onnx/model_quantized.onnx"
+
+      - name: Verify per-file SHA256s against checksums.txt
+        run: |
+          set -euo pipefail
+          echo "Expected per-file hashes (from resources/checksums.txt):"
+          grep -E '^[0-9a-f]{64}[[:space:]]+(tokenizer|config|model)' \
+            resources/checksums.txt || true
+          for f in tokenizer.json config.json model.onnx; do
+            expected=$(awk -v name="$f" '
+              !/^#/ && $2 == name { print $1; exit }
+            ' resources/checksums.txt)
+            if [ -z "$expected" ]; then
+              echo "::error::No checksum recorded for $f in resources/checksums.txt"
+              exit 1
+            fi
+            actual=$(shasum -a 256 "staged/$f" | awk '{print $1}')
+            if [ "$expected" != "$actual" ]; then
+              echo "::error::Checksum mismatch for $f"
+              echo "::error::  expected: $expected"
+              echo "::error::  actual:   $actual"
+              exit 1
+            fi
+            echo "OK $f  $actual"
+          done
+
+      - name: Build the tarball
+        id: tarball
+        env:
+          BINARY_TAG: ${{ steps.pins.outputs.binary_tag }}
+        run: |
+          set -euo pipefail
+          ARTIFACT="cohee-goemotions-${BINARY_TAG}.tar.gz"
+          # Flat tarball (no wrapping dir) so Build.rakumod can
+          # extract straight into the staged dir.
+          (cd staged && tar -czf "../$ARTIFACT" \
+              tokenizer.json config.json model.onnx)
+          TARBALL_SHA=$(shasum -a 256 "$ARTIFACT" | awk '{print $1}')
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+          echo "sha256=$TARBALL_SHA" >> "$GITHUB_OUTPUT"
+          echo "$TARBALL_SHA  $ARTIFACT" > "${ARTIFACT}.sha256"
+          echo ""
+          echo "===================================================="
+          echo "Tarball SHA256: $TARBALL_SHA"
+          echo "Paste that into resources/checksums.txt as the"
+          echo "first non-comment line (replacing any existing"
+          echo "$ARTIFACT line) and commit. Build.rakumod's"
+          echo "primary path will then verify against this hash."
+          echo "===================================================="
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.pins.outputs.binary_tag }}
+          name: ${{ steps.pins.outputs.binary_tag }}
+          body: |
+            Mirror of `${{ env.HF_MODEL_ID }}` at revision
+            `${{ steps.pins.outputs.revision }}`.
+
+            Tarball SHA256: `${{ steps.tarball.outputs.sha256 }}`.
+
+            Remember to copy the tarball sha into
+            `resources/checksums.txt` and commit — Build.rakumod
+            verifies against the bundled hashes, so installs will
+            fall back to HuggingFace until the local checksum is
+            updated.
+          files: |
+            ${{ steps.tarball.outputs.artifact }}
+            ${{ steps.tarball.outputs.artifact }}.sha256

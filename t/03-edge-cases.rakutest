@@ -1,0 +1,79 @@
+use Test;
+use lib 'lib';
+use LLM::Classifiers::Emotions;
+
+plan 6;
+
+my $c = LLM::Classifiers::Emotions::Classifier.new;
+
+subtest 'empty string classifies without throwing' => {
+	plan 2;
+	my @r;
+	lives-ok { @r = $c.classify('') }, 'empty string classifies';
+	is @r.elems, 28, 'still returns 28 entries';
+};
+
+subtest 'very long input is handled (BERT truncation at 512)' => {
+	plan 2;
+	# Concatenate a simple phrase enough times to blow past
+	# BERT's 512-token context. The tokenizer applies truncation
+	# as configured by tokenizer.json; we're just asserting
+	# nothing throws end-to-end.
+	my $long = 'I am very happy today. ' x 200;
+	my @r;
+	lives-ok { @r = $c.classify($long) }, 'long input classifies';
+	is @r.elems, 28, 'returns 28 entries';
+};
+
+subtest 'unicode and emoji input' => {
+	plan 2;
+	# DistilBERT-uncased has limited emoji coverage (most map to
+	# [UNK]) but the tokenizer handles them cleanly. We assert
+	# no-throw + sane result.
+	my @r;
+	lives-ok { @r = $c.classify("😭 I'm so sad today") },
+		'emoji input classifies';
+	ok @r[0]<label> ne '', "top label is non-empty: '{ @r[0]<label> }'";
+};
+
+subtest 'top with :min-score threshold' => {
+	plan 2;
+	# A rock-solid high-confidence input — threshold below its
+	# score returns the label.
+	is $c.top("I'm so afraid of what's coming", :min-score(0.3)),
+		'fear', 'above threshold → label returned';
+	# An ambiguous input's top score is below a demanding
+	# threshold — should return Str:U.
+	my $result = $c.top("Hello.", :min-score(0.99));
+	nok $result.defined,
+		"very high threshold with neutral input → undef (got: { $result // '(undef)' })";
+};
+
+subtest 'calling classify on a disposed classifier throws' => {
+	plan 2;
+	my $c2 = LLM::Classifiers::Emotions::Classifier.new;
+	$c2.classify("priming");
+	$c2.dispose;
+	my $exception;
+	try {
+		$c2.classify("after disposal");
+		CATCH { default { $exception = $_; } }
+	}
+	ok $exception.defined, 'classify after dispose throws';
+	ok $exception.message.contains('disposed'),
+		"error mentions disposed state: '{ $exception.message }'";
+};
+
+subtest 'consecutive classify calls do not leak / crash' => {
+	plan 1;
+	# Run a bunch of inferences to flush out any reference
+	# management bugs in the Session.run → Tensor lifecycle.
+	# If we had a leak or use-after-free this would either OOM
+	# or SIGSEGV within 50 iterations in practice.
+	my $sum = 0e0;
+	for 1..50 {
+		my @r = $c.classify("iteration #$_");
+		$sum += @r[0]<score>;
+	}
+	ok $sum > 0, "50 consecutive classify calls completed (score sum = { $sum.fmt('%.3f') })";
+};

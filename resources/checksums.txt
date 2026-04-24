@@ -1,0 +1,29 @@
+# SHA256 checksums of the distribution artifacts.
+#
+# Format: <sha256>  <filename>
+#
+# The tarball is produced by .github/workflows/hf-mirror.yml from
+# HuggingFace's Cohee/distilbert-base-uncased-go-emotions-onnx at
+# the pinned REVISION. Each line is a hard security boundary: if
+# a downloaded file's hash doesn't match, Build.rakumod refuses
+# the input and fails (or falls back to HF, when the mismatch is
+# on the GitHub Release tarball path).
+#
+# Updating: when bumping BINARY_TAG / REVISION, re-run the mirror
+# workflow, copy its output tarball-sha256 into the first line
+# below, and recompute any per-file shas that changed. The
+# individual-file hashes below were captured from the live HF
+# repo at revision d22488bc83be87678f12eee8a3f65a65de94ef85.
+
+# Tarball sha256 populated by hf-mirror.yml CI run. Until the CI
+# workflow has run for this BINARY_TAG, this line is a TODO and
+# Build.rakumod's primary (GitHub Release) path will fail the
+# checksum check, dropping through to the HF fallback.
+0000000000000000000000000000000000000000000000000000000000000000  cohee-goemotions-binaries-cohee-goemotions-d22488bc-r1.tar.gz
+
+# Individual files (names match the layout inside the tarball AND
+# the filenames at HF, with onnx/model_quantized.onnx renamed to
+# model.onnx for flatness).
+d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66  tokenizer.json
+cc7b0c0672cfd8dd003bdf5b39e56935ea7a457c1952d1d4e4dd8b9b88530cab  config.json
+1a4a425c70f9dc0f2da1d0cacd6fc4c6008e85bb8961fe62de46bd9e44cde464  model.onnx

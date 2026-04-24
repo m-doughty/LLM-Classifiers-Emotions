@@ -1,0 +1,39 @@
+{
+  "auth": "zef:apogee",
+  "authors": [
+    "Matt Doughty"
+  ],
+  "build": "Build.rakumod",
+  "build-depends": [
+    "HuggingFace::API:ver<0.2.0+>:auth<zef:apogee>"
+  ],
+  "depends": [
+    "ONNX::Native:auth<zef:apogee>",
+    "Tokenizers:auth<zef:apogee>",
+    "JSON::Fast"
+  ],
+  "description": "Text emotion classifier using Cohee's go-emotions DistilBERT (28 emotions)",
+  "license": "Artistic-2.0",
+  "name": "LLM::Classifiers::Emotions",
+  "perl": "6.d",
+  "provides": {
+    "LLM::Classifiers::Emotions": "lib/LLM/Classifiers/Emotions.rakumod"
+  },
+  "resources": [
+    "checksums.txt",
+    "BINARY_TAG",
+    "REVISION"
+  ],
+  "source-url": "https://github.com/m-doughty/LLM-Classifiers-Emotions.git",
+  "tags": [
+    "llm",
+    "classifier",
+    "emotions",
+    "goemotions",
+    "onnx",
+    "distilbert"
+  ],
+  "test-depends": [
+  ],
+  "version": "0.1.0"
+}

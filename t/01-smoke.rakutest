@@ -1,0 +1,64 @@
+use Test;
+use lib 'lib';
+use LLM::Classifiers::Emotions;
+
+plan 6;
+
+subtest 'Classifier.new loads the staged model' => {
+	plan 2;
+	my $c = LLM::Classifiers::Emotions::Classifier.new;
+	ok $c.defined, 'Classifier constructed';
+	ok $c.model-dir.d, "model-dir exists: { $c.model-dir }";
+};
+
+subtest 'labels list has the 28 go-emotions classes' => {
+	plan 6;
+	my $c = LLM::Classifiers::Emotions::Classifier.new;
+	my @labels = $c.labels;
+	is @labels.elems, 28, '28 labels';
+	# Spot-check a few anchors we expect to be present. These
+	# names come from the original GoEmotions paper and are
+	# stable across model revisions.
+	for <anger disgust fear joy love> -> $anchor {
+		ok $anchor (elem) @labels, "label '$anchor' is present";
+	}
+};
+
+subtest 'classify returns 28 entries sorted by score desc' => {
+	plan 3;
+	my $c = LLM::Classifiers::Emotions::Classifier.new;
+	my @results = $c.classify("Hello, world.");
+	is @results.elems, 28, '28 entries returned';
+	ok @results.all ~~ Hash, 'every entry is a Hash';
+	# Sorted descending — neighbouring pairs should satisfy
+	# $a.score >= $b.score.
+	my $sorted = [&&] (1..^@results.elems).map({
+		@results[$_ - 1]<score> >= @results[$_]<score>
+	});
+	ok $sorted, 'sorted descending by score';
+};
+
+subtest 'classify scores sum to ~1.0 (softmax invariant)' => {
+	plan 1;
+	my $c = LLM::Classifiers::Emotions::Classifier.new;
+	my @results = $c.classify("This is a neutral statement about weather.");
+	my $sum = @results.map(*.<score>).sum;
+	ok abs($sum - 1) < 1e-5,
+		"sum of 28 scores is { $sum.fmt('%.6f') } (within 1e-5 of 1.0)";
+};
+
+subtest 'top returns a Str in the labels list' => {
+	plan 2;
+	my $c = LLM::Classifiers::Emotions::Classifier.new;
+	my $label = $c.top("I love you");
+	ok $label.defined, 'top returned a defined label';
+	ok $label (elem) $c.labels, "'$label' is a known label";
+};
+
+subtest 'dispose is idempotent' => {
+	plan 2;
+	my $c = LLM::Classifiers::Emotions::Classifier.new;
+	$c.classify("priming call");
+	lives-ok { $c.dispose }, 'first dispose works';
+	lives-ok { $c.dispose }, 'second dispose is a no-op';
+};

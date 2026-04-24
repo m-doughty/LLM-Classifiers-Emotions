@@ -1,0 +1,52 @@
+# === Raku ===
+.precomp/
+lib/.precomp/
+*.moarvm
+
+# === Staged model artefacts ===
+# The model files (tokenizer.json, config.json, model.onnx) live
+# in $XDG_DATA_HOME at runtime, but catch any accidental copy
+# inside the source tree.
+model.onnx
+tokenizer.json
+config.json
+cohee-goemotions-*.tar.gz
+cohee-goemotions-*.zip
+
+# === macOS ===
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# === Linux ===
+core
+*.core
+*.stackdump
+
+# === Windows ===
+Thumbs.db
+desktop.ini
+nul
+
+# === Editors ===
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*.swn
+*~
+*.kate-swp
+.netrwhist
+
+# === Checkpoint / backup ===
+*.bak
+*.tmp
+*.old
+*.orig
+*.rej
+
+# === Logs ===
+*.log

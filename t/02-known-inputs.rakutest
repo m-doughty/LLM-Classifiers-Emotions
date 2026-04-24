@@ -1,0 +1,64 @@
+use Test;
+use lib 'lib';
+use LLM::Classifiers::Emotions;
+
+# Deterministic assertions. ONNX Runtime's CPU EP + the pinned
+# quantized Cohee model produce bit-identical logits across runs
+# for the same input on the same ORT version. These tests assert
+# both the argmax label (should be rock-solid) and score bounds
+# (±0.01 tolerance covers the tiny differences between ORT
+# versions; bump if a future ORT release moves the needle).
+
+plan 4;
+
+#| Expected (text, top-label, min-score) tuples — chosen from a
+#| probe pass that confirmed each of these is a high-confidence
+#| hit for the named label on this specific quantized model.
+my @known-inputs =
+	("I'm so angry I could scream",                    'anger',        0.50),
+	("This is absolutely disgusting, get it away",     'disgust',      0.45),
+	("I'm so afraid of what's coming next",            'fear',         0.50),
+	("I'm so nervous about the exam tomorrow",         'nervousness',  0.50),
+	("I'm really curious how this works",              'curiosity',    0.70),
+	("Wow, I did not see that coming at all",          'surprise',     0.40),
+	("Thank you so much, this means everything",       'gratitude',    0.30),
+	;
+
+my $c = LLM::Classifiers::Emotions::Classifier.new;
+
+subtest 'known-inputs: top label is correct' => {
+	plan @known-inputs.elems;
+	for @known-inputs -> ($text, $expected, $) {
+		is $c.top($text), $expected,
+			"'{ $text }' → $expected";
+	}
+};
+
+subtest 'known-inputs: top score exceeds min threshold' => {
+	plan @known-inputs.elems;
+	for @known-inputs -> ($text, $expected, $min) {
+		my @r = $c.classify($text);
+		ok @r[0]<score> >= $min,
+			"'{ $text }' score { @r[0]<score>.fmt('%.3f') } ≥ $min";
+	}
+};
+
+subtest 'determinism: same input gives bit-identical logits' => {
+	plan 2;
+	my $text = "I'm so nervous about the exam tomorrow";
+	my @run1 = $c.raw-logits($text);
+	my @run2 = $c.raw-logits($text);
+	my @run3 = $c.raw-logits($text);
+	ok @run1 eqv @run2, 'run 1 == run 2';
+	ok @run2 eqv @run3, 'run 2 == run 3';
+};
+
+subtest 'determinism: fresh classifier produces identical logits' => {
+	plan 1;
+	my $text = "I love you";
+	my @logits-a = $c.raw-logits($text);
+	my $c2 = LLM::Classifiers::Emotions::Classifier.new;
+	my @logits-b = $c2.raw-logits($text);
+	ok @logits-a eqv @logits-b,
+		'new Classifier instance gives identical logits';
+};

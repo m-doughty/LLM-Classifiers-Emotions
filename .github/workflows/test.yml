@@ -1,0 +1,76 @@
+# Install LLM::Classifiers::Emotions via the normal zef path (which
+# downloads the model artefacts from our GitHub Release, or falls
+# back to HuggingFace if our Release isn't up yet), then run the
+# test suite on macOS / Linux / Windows.
+#
+# The `install-mode` matrix dimension exercises both the primary
+# path (our Release, with HF as implicit fallback when the Release
+# 404s) and the explicit HF path (LLM_EMOTIONS_FROM_HF=1 — forces
+# the backup pathway even when our Release is up).
+#
+# A tag-release build (hf-mirror.yml) doesn't trigger test.yml —
+# it just publishes the Release artefact. The next test.yml run
+# after the Release goes public is what validates the chain.
+
+name: test
+
+on:
+  push:
+    branches:
+      - '*'
+    tags-ignore:
+      - 'binaries-*'
+  pull_request:
+
+jobs:
+  raku:
+    name: ${{ matrix.os }} / ${{ matrix.install-mode }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        install-mode:
+          - default      # our Release primary, HF secondary
+          - hf-fallback  # LLM_EMOTIONS_FROM_HF=1, forces HF path
+        raku-version:
+          - 'latest'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Raku/setup-raku@v1
+        with:
+          raku-version: ${{ matrix.raku-version }}
+
+      # Windows needs the VS Dev Environment so ONNX::Native's
+      # Build.rakumod can compile its shim against Microsoft's
+      # upstream prebuilt (the auto-fallback path until we publish
+      # our own ONNX::Native Release).
+      - name: Setup VS Dev Environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Install App::Prove6
+        run: zef install --/test App::Prove6
+
+      # `zef install .` triggers Build.rakumod → downloads the
+      # three model files (~70 MB on first install, cached by zef
+      # thereafter). install-mode chooses which source to pull
+      # from; the checksum verification is identical either way,
+      # so a matching hash is asserted under both modes.
+      - name: Install LLM::Classifiers::Emotions (default)
+        if: matrix.install-mode == 'default'
+        run: zef install --/test --force-install .
+
+      - name: Install LLM::Classifiers::Emotions (force HF fallback)
+        if: matrix.install-mode == 'hf-fallback'
+        env:
+          LLM_EMOTIONS_FROM_HF: '1'
+        run: zef install --/test --force-install .
+
+      - name: Run tests
+        run: prove6 -Ilib t
