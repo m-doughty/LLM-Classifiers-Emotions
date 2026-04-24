@@ -2,6 +2,16 @@ Revision history for LLM::Classifiers::Emotions
 
 {{$NEXT}}
 
+0.1.3  2026-04-24T06:47:14+01:00
+    - test.yml: exclude windows-latest × hf-fallback from the
+      matrix. The HF fallback goes through Cro::HTTP →
+      IO::Socket::Async::SSL, which on the Windows runner fails
+      with "Server certificate verification failed: unable to
+      get local issuer certificate" — a known Raku-on-Windows
+      CA-bundle issue, not fixable inside this module. The
+      primary path (our hosted Release) works on Windows fine
+      and is still tested under windows-latest × default.
+
 0.1.2  2026-04-24T06:26:59+01:00
     - resources/checksums.txt: populate the tarball sha256
       produced by the first hf-mirror.yml run

@@ -1,12 +1,20 @@
-# Install LLM::Classifiers::Emotions via the normal zef path (which
-# downloads the model artefacts from our GitHub Release, or falls
-# back to HuggingFace if our Release isn't up yet), then run the
-# test suite on macOS / Linux / Windows.
+# Install LLM::Classifiers::Emotions via the normal zef path
+# (which downloads the model artefacts from our GitHub Release,
+# or falls back to HuggingFace if our Release isn't up yet),
+# then run the test suite on macOS / Linux / Windows.
 #
 # The `install-mode` matrix dimension exercises both the primary
 # path (our Release, with HF as implicit fallback when the Release
 # 404s) and the explicit HF path (LLM_EMOTIONS_FROM_HF=1 — forces
 # the backup pathway even when our Release is up).
+#
+# Exclusion: windows-latest × hf-fallback is dropped. The HF
+# fallback goes through HuggingFace::API → Cro::HTTP →
+# IO::Socket::Async::SSL, which on the Windows runner fails with
+# "Server certificate verification failed: unable to get local
+# issuer certificate" — a known Raku-on-Windows CA-bundle issue,
+# not fixable inside this module. The primary path (from our
+# hosted Release) works on Windows fine and IS tested.
 #
 # A tag-release build (hf-mirror.yml) doesn't trigger test.yml —
 # it just publishes the Release artefact. The next test.yml run
@@ -37,6 +45,12 @@ jobs:
           - hf-fallback  # LLM_EMOTIONS_FROM_HF=1, forces HF path
         raku-version:
           - 'latest'
+        exclude:
+          # HF fallback relies on Raku's SSL stack, which fails
+          # on the Windows runner (CA-bundle resolution). Primary
+          # path still runs under windows-latest × default.
+          - os: windows-latest
+            install-mode: hf-fallback
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -46,8 +60,8 @@ jobs:
 
       # Windows needs the VS Dev Environment so ONNX::Native's
       # Build.rakumod can compile its shim against Microsoft's
-      # upstream prebuilt (the auto-fallback path until we publish
-      # our own ONNX::Native Release).
+      # upstream prebuilt (fallback path when our ONNX::Native
+      # Release isn't up for a given BINARY_TAG).
       - name: Setup VS Dev Environment (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
