@@ -53,7 +53,7 @@ jobs:
             install-mode: hf-fallback
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: Raku/setup-raku@v1
         with:
           raku-version: ${{ matrix.raku-version }}
@@ -64,7 +64,7 @@ jobs:
       # Release isn't up for a given BINARY_TAG).
       - name: Setup VS Dev Environment (Windows)
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: m-doughty/msvc-dev-cmd@v1-node24
         with:
           arch: amd64
 
