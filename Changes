@@ -2,6 +2,9 @@ Revision history for LLM::Classifiers::Emotions
 
 {{$NEXT}}
 
+0.1.5  2026-08-11T11:57:37+01:00
+    - Fix typo, credit the person who suggested the module
+
 0.1.4  2026-04-29T23:48:16+01:00
     - Bump Github actions to use node 24+
 

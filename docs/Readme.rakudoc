@@ -216,6 +216,7 @@ change (the protocols and file formats are platform-neutral).
 
 =head1 MODEL CREDIT
 
+=item Etch - original idea for the module
 =item Cohee — ONNX / quantized conversion of the original model
 =item Demszky et al (Google Research, 2020) — GoEmotions dataset
 =item HuggingFace — original DistilBERT base model

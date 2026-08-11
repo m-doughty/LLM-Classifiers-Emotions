@@ -8,9 +8,9 @@
     "HuggingFace::API:ver<0.2.0>:auth<zef:apogee>"
   ],
   "depends": [
-    "ONNX::Native:auth<zef:apogee>",
-    "Tokenizers:auth<zef:apogee>",
-    "JSON::Fast"
+    "ONNX::Native:ver<0.1.1+>:auth<zef:apogee>",
+    "Tokenizers:ver<0.2.2+>:auth<zef:apogee>",
+    "JSON::Fast:ver<0.19+>:auth<cpan:TIMOTIMO>"
   ],
   "description": "Text emotion classifier using Cohee's go-emotions DistilBERT (28 emotions)",
   "license": "Artistic-2.0",
@@ -35,5 +35,5 @@
   ],
   "test-depends": [
   ],
-  "version": "0.1.4"
+  "version": "0.1.5"
 }

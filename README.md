@@ -149,6 +149,8 @@ AUTHOR
 MODEL CREDIT
 ============
 
+  * Etch - original idea for the module
+
   * Cohee — ONNX / quantized conversion of the original model
 
   * Demszky et al (Google Research, 2020) — GoEmotions dataset

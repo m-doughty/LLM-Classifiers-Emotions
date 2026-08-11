@@ -31,7 +31,7 @@
 #|
 #|   LLM_EMOTIONS_BINARY_URL=<url>   override GitHub Release base
 #|                                   URL (default:
-#|                                   github.com/invisietch/
+#|                                   github.com/m-doughty/
 #|                                   LLM-Classifiers-Emotions/
 #|                                   releases/download)
 #|   LLM_EMOTIONS_BINARY_ONLY=1      refuse the HF fallback; fail
