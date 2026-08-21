@@ -2,6 +2,9 @@ Revision history for LLM::Classifiers::Emotions
 
 {{$NEXT}}
 
+0.1.7  2026-08-21T22:40:32+01:00
+    - Require Tokenizers 0.3.0 (panic-free FFI boundary with typed errors).
+
 0.1.6  2026-08-11T11:59:30+01:00
     - Fix gitignore
 
