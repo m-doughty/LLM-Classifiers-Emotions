@@ -1,0 +1,120 @@
+# Third-party notices: the go-emotions model files
+
+The model files beside this document are not the work of the author of
+LLM::Classifiers::Emotions, and that distribution's own licence
+(Artistic-2.0) does not apply to them. They are Cohee's ONNX export of a
+go-emotions classifier, taken unmodified from Hugging Face at revision
+`@REVISION@`:
+
+| File | Path in the Hugging Face repository at that revision |
+|---|---|
+| `tokenizer.json` | `tokenizer.json` |
+| `config.json` | `config.json` |
+| `model.onnx` | `onnx/model_quantized.onnx`, renamed; contents unchanged |
+| `MODEL-CARD.md` | `README.md` (the model card), renamed; contents unchanged |
+
+LLM::Classifiers::Emotions installs these files from the archive
+`cohee-goemotions-@BINARY_TAG@.tar.gz`, attached to its GitHub release
+`@BINARY_TAG@`. That archive redistributes them, together with this
+document, `MODEL-CARD.md` and `LICENSES/`. When the release cannot be
+reached, the installer fetches the same files directly from Hugging Face
+instead, and checks every one against the same SHA-256.
+
+The full licence texts are in `LICENSES/`: `MIT.txt` and `Apache-2.0.txt`.
+
+## Components
+
+| Component | Licence (SPDX) | Source | Credit |
+|---|---|---|---|
+| ONNX export, int8-quantised | `MIT` | <https://huggingface.co/Cohee/distilbert-base-uncased-go-emotions-onnx/tree/@REVISION@> | Cohee |
+| Distilled go-emotions student model | `MIT` | <https://huggingface.co/joeddav/distilbert-base-uncased-go-emotions-student> | Joe Davison (joeddav) |
+| DistilBERT base model, with the BERT vocabulary | `Apache-2.0` | <https://huggingface.co/distilbert/distilbert-base-uncased> | Sanh, Debut, Chaumond and Wolf (DistilBERT, 2019); Devlin, Chang, Lee and Toutanova (BERT, 2018) |
+| GoEmotions dataset | `Apache-2.0` | <https://huggingface.co/datasets/google-research-datasets/go_emotions> | Demszky, Movshovitz-Attias, Ko, Cowen, Nemade and Ravi (GoEmotions, 2020) |
+
+## Details
+
+### ONNX export, by Cohee
+
+* Licence: MIT, declared in the metadata of the repository's model card
+  (`license: mit`). The repository has no LICENSE file and states no
+  copyright notice. `LICENSES/MIT.txt` is the standard MIT text, and its
+  `Copyright (c) <year> <copyright holders>` line is the licence's own
+  placeholder: upstream never filled it in, so the work is attributed
+  here by name and URL instead.
+* Source: <https://huggingface.co/Cohee/distilbert-base-uncased-go-emotions-onnx>
+  at revision `@REVISION@`.
+* In these files: all four of them. The model card describes the export
+  as joeddav's student model (below) "converted to ONNX and quantized
+  using optimum", and `config.json` names that model as its origin.
+* Credit: Cohee.
+
+### Distilled student model, by Joe Davison
+
+* Licence: MIT, declared in the metadata of the repository's model card
+  (`license: mit`). The repository has no LICENSE file and states no
+  copyright notice, so, as above, the work is attributed here by name
+  and URL.
+* Source: <https://huggingface.co/joeddav/distilbert-base-uncased-go-emotions-student>.
+  The ONNX export does not record which revision of it was converted.
+* In these files: the trained weights, which `model.onnx` carries in
+  int8-quantised form, and the label set in `config.json`.
+* Its model card says it was distilled from the Hugging Face
+  transformers zero-shot classification pipeline, run over the
+  unlabelled GoEmotions text. That pipeline's NLI teacher model, which
+  the card does not name, supplied pseudo-labels only; no part of it is
+  in these files.
+* Credit: Joe Davison (joeddav).
+
+### DistilBERT base model and the BERT vocabulary
+
+* Licence: Apache-2.0, declared in the repository's metadata. The
+  repository ships the Apache License 2.0 as its LICENSE file, the same
+  text as `LICENSES/Apache-2.0.txt`, with no copyright notice and no
+  NOTICE file.
+* Source: <https://huggingface.co/distilbert/distilbert-base-uncased>.
+* In these files: the architecture and pre-trained base that the student
+  model was trained from, and the uncased WordPiece vocabulary embedded
+  in `tokenizer.json`. That vocabulary is byte-identical to the
+  `vocab.txt` of BERT base uncased
+  (<https://huggingface.co/google-bert/bert-base-uncased>, also
+  Apache-2.0), the model DistilBERT was distilled from.
+* Credit: Victor Sanh, Lysandre Debut, Julien Chaumond and Thomas Wolf,
+  "DistilBERT, a distilled version of BERT: smaller, faster, cheaper and
+  lighter" (2019, <https://arxiv.org/abs/1910.01108>); and, for BERT,
+  Jacob Devlin, Ming-Wei Chang, Kenton Lee and Kristina Toutanova, "BERT:
+  Pre-training of Deep Bidirectional Transformers for Language
+  Understanding" (2018, <https://arxiv.org/abs/1810.04805>).
+
+### GoEmotions dataset
+
+* Licence: Apache-2.0. The dataset card gives the licence of the GitHub
+  repository that houses the dataset,
+  <https://github.com/google-research/google-research/blob/master/LICENSE>.
+* Source: <https://huggingface.co/datasets/google-research-datasets/go_emotions>;
+  the original release is
+  <https://github.com/google-research/google-research/tree/master/goemotions>.
+* In these files: no text from the dataset. The student model was
+  trained on the dataset's comments, without their labels (see above),
+  and its 28 labels, GoEmotions' 27 emotion categories plus "neutral",
+  are the label names in `config.json`.
+* Credit: Dorottya Demszky, Dana Movshovitz-Attias, Jeongwoo Ko, Alan
+  Cowen, Gaurav Nemade and Sujith Ravi, "GoEmotions: A Dataset of
+  Fine-Grained Emotions", ACL 2020
+  (<https://aclanthology.org/2020.acl-main.372/>).
+
+## When these licences were checked
+
+The licences above were checked against Hugging Face on 2026-10-24.
+Cohee's repository was checked at the revision these files come from,
+`d22488bc83be87678f12eee8a3f65a65de94ef85`. The others were checked at
+their revisions current on that day, which are not necessarily the ones
+Cohee's export was built from: joeddav's student model at
+`82114042047aaa39717090cfb20f3403b73b0215`, DistilBERT at
+`12040accade4e8a0f71eabdb258fecc2e7e948be`, BERT base uncased at
+`86b5e0934494bd15c9632b12f734a8a67f723594` and GoEmotions at
+`add492243ff905527e67aeb8b80c082af02207c3`.
+
+---
+
+Generated from `resources/THIRD-PARTY.md.in` in the LLM::Classifiers::Emotions
+distribution, <https://github.com/m-doughty/LLM-Classifiers-Emotions>.

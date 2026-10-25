@@ -2,17 +2,29 @@
 # GitHub Release on this repo, so that `zef install` can pull
 # from content we host rather than depending on HF's CDN.
 #
-# Triggers (matching CRoaring / ONNX-Native convention):
-#   - workflow_dispatch (manual) — normal path while the recipe
-#     is being shaken down. Start here.
-#   - push: tags matching `binaries-*` — production path. Push a
-#     tag like `binaries-cohee-goemotions-d22488bc-r1` (matching
-#     the BINARY_TAG file) and CI produces the Release.
+# Triggers (matching Notcurses-Native's release semantics):
+#   - push: tags matching `binaries-*` — the only way to publish.
+#     Push a tag like `binaries-cohee-goemotions-d22488bc-r1`
+#     (matching the BINARY_TAG file) and CI produces the Release.
+#   - workflow_dispatch (manual) — a dry run: it downloads,
+#     verifies and builds the tarball exactly as a release would,
+#     then uploads it as a workflow artifact for inspection. It
+#     never creates a tag or a Release, even when dispatched on a
+#     tag.
 #
 # Output artifacts on the GitHub Release (tagged with the
 # BINARY_TAG value):
-#   - cohee-goemotions-<BINARY_TAG>.tar.gz   # the three files flat
+#   - cohee-goemotions-<BINARY_TAG>.tar.gz
 #   - cohee-goemotions-<BINARY_TAG>.tar.gz.sha256
+#
+# The tarball is flat: the three model files (tokenizer.json,
+# config.json, model.onnx) plus the licence notices a
+# redistribution of them owes — THIRD-PARTY.md (rendered from
+# resources/THIRD-PARTY.md.in: each upstream component, its
+# licence, source and credit), MODEL-CARD.md (the HF repo's
+# README.md at the pinned revision) and LICENSES/ (the MIT and
+# Apache-2.0 texts from resources/licenses/). Build.rakumod
+# stages all of them beside the model files.
 #
 # After the Release is produced, the workflow prints the
 # tarball's sha256. Paste it into resources/checksums.txt
@@ -81,14 +93,17 @@ jobs:
           curl -fL -o staged/tokenizer.json "$BASE/tokenizer.json"
           curl -fL -o staged/config.json    "$BASE/config.json"
           curl -fL -o staged/model.onnx     "$BASE/onnx/model_quantized.onnx"
+          # The model card at the same revision travels with the
+          # files it describes.
+          curl -fL -o staged/MODEL-CARD.md  "$BASE/README.md"
 
       - name: Verify per-file SHA256s against checksums.txt
         run: |
           set -euo pipefail
           echo "Expected per-file hashes (from resources/checksums.txt):"
-          grep -E '^[0-9a-f]{64}[[:space:]]+(tokenizer|config|model)' \
+          grep -E '^[0-9a-f]{64}[[:space:]]+(tokenizer|config|model|MODEL-CARD)' \
             resources/checksums.txt || true
-          for f in tokenizer.json config.json model.onnx; do
+          for f in tokenizer.json config.json model.onnx MODEL-CARD.md; do
             expected=$(awk -v name="$f" '
               !/^#/ && $2 == name { print $1; exit }
             ' resources/checksums.txt)
@@ -106,6 +121,68 @@ jobs:
             echo "OK $f  $actual"
           done
 
+      # The notices every copy of these files must travel with:
+      # the MIT texts (Cohee's export, joeddav's student model),
+      # Apache-2.0 (DistilBERT and its BERT vocabulary, GoEmotions)
+      # and the attribution for each. THIRD-PARTY.md is rendered
+      # from the same template, with the same two substitutions,
+      # as Build.rakumod uses for installs that don't come from
+      # this release.
+      - name: Write the licence notices
+        env:
+          BINARY_TAG: ${{ steps.pins.outputs.binary_tag }}
+          REVISION: ${{ steps.pins.outputs.revision }}
+        run: |
+          set -euo pipefail
+          # Both values are substituted into THIRD-PARTY.md with
+          # sed, so hold them to the shapes Build.rakumod accepts.
+          if ! [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::resources/REVISION '$REVISION' is not a 40-character lower-case hex commit id"
+            exit 1
+          fi
+          if ! [[ "$BINARY_TAG" =~ ^binaries-[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::BINARY_TAG '$BINARY_TAG' is not a binaries-<…> tag of letters, digits, '.', '_' and '-'"
+            exit 1
+          fi
+
+          # The template records the revision its licences were
+          # checked against. A REVISION bump means checking them
+          # again: refuse to ship licence claims nobody has checked
+          # at the revision being shipped.
+          if ! grep -qF "\`$REVISION\`" resources/THIRD-PARTY.md.in; then
+            echo "::error::resources/THIRD-PARTY.md.in doesn't record a licence check against REVISION $REVISION."
+            echo "::error::Re-check each component's licence at the new revision and update the template."
+            exit 1
+          fi
+
+          mkdir -p staged/LICENSES
+          licences=0
+          for text in resources/licenses/*; do
+            [ -f "$text" ] || continue
+            cp "$text" staged/LICENSES/
+            licences=$((licences + 1))
+          done
+          if [ "$licences" -eq 0 ]; then
+            echo "::error::resources/licenses/ holds no licence texts"
+            exit 1
+          fi
+
+          sed -e "s|@REVISION@|${REVISION}|g" \
+              -e "s|@BINARY_TAG@|${BINARY_TAG}|g" \
+              resources/THIRD-PARTY.md.in > staged/THIRD-PARTY.md
+          if grep -nE '@[A-Z_]+@' staged/THIRD-PARTY.md; then
+            echo "::error::THIRD-PARTY.md has a placeholder the substitutions didn't cover (above)"
+            exit 1
+          fi
+          for text in staged/LICENSES/*; do
+            if ! grep -qF "\`$(basename "$text")\`" staged/THIRD-PARTY.md; then
+              echo "::error::THIRD-PARTY.md doesn't mention LICENSES/$(basename "$text")"
+              exit 1
+            fi
+          done
+          echo "Wrote staged/THIRD-PARTY.md and $licences licence text(s):"
+          ls -l staged/LICENSES
+
       - name: Build the tarball
         id: tarball
         env:
@@ -116,7 +193,10 @@ jobs:
           # Flat tarball (no wrapping dir) so Build.rakumod can
           # extract straight into the staged dir.
           (cd staged && tar -czf "../$ARTIFACT" \
-              tokenizer.json config.json model.onnx)
+              tokenizer.json config.json model.onnx \
+              MODEL-CARD.md THIRD-PARTY.md LICENSES)
+          echo "Contents of $ARTIFACT:"
+          tar -tzvf "$ARTIFACT"
           TARBALL_SHA=$(shasum -a 256 "$ARTIFACT" | awk '{print $1}')
           echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
           echo "sha256=$TARBALL_SHA" >> "$GITHUB_OUTPUT"
@@ -130,7 +210,24 @@ jobs:
           echo "primary path will then verify against this hash."
           echo "===================================================="
 
+      # Dispatch runs stop here: the tarball is kept as a workflow
+      # artifact so the dry run can be inspected, and nothing is
+      # published.
+      - name: Upload the tarball (dry run)
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.tarball.outputs.artifact }}
+          path: |
+            ${{ steps.tarball.outputs.artifact }}
+            ${{ steps.tarball.outputs.artifact }}.sha256
+          if-no-files-found: error
+
+      # Only a pushed binaries-* tag publishes. A manual dispatch
+      # run on a tag sees refs/tags/… too, so the event is checked
+      # as well as the ref (the Notcurses-Native gate).
       - name: Create / update GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/binaries-')
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.pins.outputs.binary_tag }}
@@ -140,6 +237,15 @@ jobs:
             `${{ steps.pins.outputs.revision }}`.
 
             Tarball SHA256: `${{ steps.tarball.outputs.sha256 }}`.
+
+            The model files are not the work of this repository's
+            author. The tarball carries their licence notices:
+            `THIRD-PARTY.md` (each upstream component — Cohee's ONNX
+            export and joeddav's student model, both MIT; DistilBERT
+            with its BERT vocabulary and the GoEmotions dataset, both
+            Apache-2.0 — with its source and credit), `MODEL-CARD.md`
+            (the upstream model card at the same revision) and
+            `LICENSES/` (the full MIT and Apache-2.0 texts).
 
             Remember to copy the tarball sha into
             `resources/checksums.txt` and commit — Build.rakumod

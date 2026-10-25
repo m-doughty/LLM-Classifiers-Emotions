@@ -32,7 +32,7 @@ on:
 
 jobs:
   raku:
-    name: ${{ matrix.os }} / ${{ matrix.install-mode }}
+    name: ${{ matrix.os }} / ${{ matrix.install-mode }} / ${{ matrix.raku-version }}
     strategy:
       fail-fast: false
       matrix:
@@ -43,8 +43,8 @@ jobs:
         install-mode:
           - default      # our Release primary, HF secondary
           - hf-fallback  # LLM_EMOTIONS_FROM_HF=1, forces HF path
-        raku-version:
-          - 'latest'
+        # 2026.07: last legacy-frontend release. 2026.09: RakuAST is the default.
+        raku-version: ['2026.07', '2026.09']
         exclude:
           # HF fallback relies on Raku's SSL stack, which fails
           # on the Windows runner (CA-bundle resolution). Primary

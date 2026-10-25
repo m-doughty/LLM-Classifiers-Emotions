@@ -1,0 +1,537 @@
+use Test;
+use JSON::Fast;
+
+# Build.rakumod isn't published in META6's `provides` (it's the
+# `build:` script, not a module), so `use Build;` is rejected by the
+# dist's CompUnit boundary. EVALFILE'd at BEGIN time so the class
+# symbol is in scope for the rest of the file.
+BEGIN EVALFILE $*PROGRAM.parent.parent.child('Build.rakumod').absolute;
+
+# The licence notices Build stages beside the model files:
+# THIRD-PARTY.md, MODEL-CARD.md and LICENSES/. Every case runs the
+# real Build.build against a scratch dist, a scratch data dir and a
+# scratch cache, fully offline:
+#
+#   * the primary path never reaches curl, because the release
+#     tarball is pre-seeded in the cache, where Build looks first;
+#   * the Hugging Face paths go through MockHF, passed as Build's
+#     hf-api, which serves canned bytes and records every request.
+#
+# The model files are stand-ins, not the real model: the scratch
+# dist's checksums.txt records their hashes, so the real checksum
+# verification runs on them unchanged.
+#
+# Build narrates with say/note. Raw output inside a subtest corrupts
+# the TAP stream, so every Build call goes through `captured`, which
+# also lets the warnings be asserted on.
+
+my IO::Path $dist      = $*PROGRAM.parent.parent;
+my IO::Path $resources = $dist.add('resources');
+my Str $tag      = $dist.add('BINARY_TAG').slurp.trim;
+my Str $revision = $resources.add('REVISION').slurp.trim;
+my Str $artifact = "cohee-goemotions-$tag.tar.gz";
+my Str $model-id = 'Cohee/distilbert-base-uncased-go-emotions-onnx';
+
+my @model-files = <tokenizer.json config.json model.onnx>;
+my @licence-names = <Apache-2.0.txt MIT.txt>;
+
+#| The stand-in model files, keyed by their staged basename.
+my %model =
+	'tokenizer.json' => '{"stand-in": "tokenizer"}' ~ "\n",
+	'config.json'    => '{"stand-in": "config"}' ~ "\n",
+	'model.onnx'     => "stand-in onnx bytes\n";
+
+#| Where each model file lives in the Hugging Face repository.
+my %hf-path =
+	'tokenizer.json' => 'tokenizer.json',
+	'config.json'    => 'config.json',
+	'model.onnx'     => 'onnx/model_quantized.onnx';
+
+my Str $card-text = "---\nlicense: mit\n---\n\nStand-in model card.\n";
+
+#| Notices as a release tarball would ship them. Deliberately not
+#| what the dist's resources would produce, so a test can tell a
+#| shipped notice from one Build wrote.
+my %shipped-notice =
+	'MODEL-CARD.md'          => "model card as shipped in the tarball\n",
+	'THIRD-PARTY.md'         => "THIRD-PARTY.md as shipped in the tarball\n",
+	'LICENSES/MIT.txt'       => "MIT text as shipped in the tarball\n",
+	'LICENSES/Apache-2.0.txt' => "Apache-2.0 text as shipped in the tarball\n";
+
+#| THIRD-PARTY.md as Build should render it from the dist's
+#| template. Computed here independently, not by asking Build.
+my Str $expected-third-party = $resources.add('THIRD-PARTY.md.in').slurp
+	.subst('@REVISION@', $revision, :g)
+	.subst('@BINARY_TAG@', $tag, :g);
+
+# --- Helpers ------------------------------------------------------------
+
+my class Capture is IO::Handle {
+	has Str $.text = '';
+	submethod TWEAK { self.encoding: 'utf8' }
+	method WRITE(IO::Handle:D: Blob:D \data --> True) {
+		$!text ~= data.decode('utf8');
+	}
+}
+
+#| Run &code with $*OUT and $*ERR captured. Returns the code's
+#| result, the exception it died with (if any) and both streams.
+sub captured(&code --> Map) {
+	my $out = Capture.new;
+	my $err = Capture.new;
+	my $result;
+	my $exception;
+	{
+		CATCH { default { $exception = $_ } }
+		temp $*OUT = $out;
+		temp $*ERR = $err;
+		$result = code();
+	}
+	Map.new: (:$result, :$exception, :out($out.text), :err($err.text));
+}
+
+#| A stand-in for HuggingFace::API: serves %.files (HF path =>
+#| Str) and records every request as "<model-id> <path> <rev>".
+#| A path it doesn't hold dies, as a failed download would.
+my class MockHF {
+	has %.files;
+	has @.requests;
+	method get-file-to-file(Str:D $model-id, Str:D $hf-path,
+			IO::Path:D $out, Str:D :$revision = 'main' --> IO::Path:D) {
+		@!requests.push: "$model-id $hf-path $revision";
+		die "MockHF: no $hf-path in this fixture"
+			unless %!files{$hf-path}:exists;
+		$out.spurt(%!files{$hf-path}.encode('utf8'));
+		$out;
+	}
+}
+
+sub remove-tree(IO::Path:D $path --> Nil) {
+	return unless $path.e || $path.l;
+	if $path.d && !$path.l {
+		remove-tree($_) for $path.dir;
+		$path.rmdir;
+	}
+	else {
+		$path.unlink;
+	}
+}
+
+#| SHA-256 as lower-case hex. Computed here rather than by Build,
+#| so the fixtures don't lean on the code under test.
+sub sha256-of(IO::Path:D $file --> Str:D) {
+	my @cmd = $*DISTRO.is-win
+		?? ('certutil', '-hashfile', $file.absolute, 'SHA256')
+		!! ('shasum', '-a', '256', $file.absolute);
+	my $proc = run |@cmd, :out, :err;
+	my Str $out = $proc.out.slurp(:close);
+	$proc.err.slurp(:close);
+	die "@cmd[0] failed on $file" unless $proc.exitcode == 0;
+	unless $*DISTRO.is-win {
+		return $out.words.head.lc;
+	}
+	for $out.lines -> Str $line {
+		my Str $hex = $line.subst(/\s+/, '', :g).lc;
+		return $hex if $hex ~~ / ^ <[0..9 a..f]> ** 64 $ /;
+	}
+	die "certutil printed no SHA-256 for $file";
+}
+
+#| A staged file's text, or '(missing)': assertions on a file
+#| that isn't there fail rather than throw.
+sub text-of(IO::Path:D $file --> Str:D) {
+	$file.f ?? $file.slurp !! '(missing)';
+}
+
+sub write-file(IO::Path:D $file, Str:D $text --> Nil) {
+	$file.parent.mkdir;
+	$file.spurt($text.encode('utf8'));
+}
+
+my IO::Path $root = $*TMPDIR.add("lce-notices-{$*PID}-{(^1_000_000).pick}");
+$root.mkdir;
+END { remove-tree($root) if $root.defined }
+
+my Int $case = 0;
+
+#| A fresh scratch area: a copy of the dist's build inputs (with
+#| a checksums.txt for the stand-ins), an empty data dir and an
+#| empty cache. %tarball, when given, is the tarball's contents
+#| (relative path => Str); it is pre-seeded in the cache and its
+#| hash recorded, unless :wrong-tarball-sha records a bad one.
+sub scratch(:%tarball, Bool :$wrong-tarball-sha --> Map) {
+	my IO::Path $base = $root.add('case-' ~ ++$case);
+	my IO::Path $sdist = $base.add('dist');
+	my IO::Path $data  = $base.add('data');
+	my IO::Path $cache = $base.add('cache');
+	.mkdir for $sdist.add('resources/licenses'), $data, $cache;
+
+	write-file($sdist.add('BINARY_TAG'), "$tag\n");
+	write-file($sdist.add('resources/REVISION'), "$revision\n");
+	$resources.add('THIRD-PARTY.md.in')
+		.copy($sdist.add('resources/THIRD-PARTY.md.in'));
+	for @licence-names -> Str $name {
+		$resources.add("licenses/$name")
+			.copy($sdist.add("resources/licenses/$name"));
+	}
+
+	# Hash the stand-ins exactly as they will be served.
+	my IO::Path $hashing = $base.add('hashing');
+	my @lines;
+	for @model-files -> Str $name {
+		write-file($hashing.add($name), %model{$name});
+		@lines.push: sha256-of($hashing.add($name)) ~ "  $name";
+	}
+	write-file($hashing.add('MODEL-CARD.md'), $card-text);
+	@lines.push: sha256-of($hashing.add('MODEL-CARD.md')) ~ '  MODEL-CARD.md';
+
+	if %tarball {
+		my IO::Path $src = $base.add('tarball-src');
+		for %tarball.kv -> Str $rel, Str $text {
+			write-file($src.add($rel), $text);
+		}
+		# Relative paths only: the archive is created inside
+		# $src, so no drive letter ever reaches tar.
+		my @top = %tarball.keys.map(*.split('/').head).unique.sort;
+		my $proc = run 'tar', '-czf', 'release.tar.gz', |@top,
+			:cwd($src), :out, :err,
+			:env(%( |%*ENV, 'COPYFILE_DISABLE' => '1' ));
+		$proc.out.slurp(:close);
+		my Str $tar-err = $proc.err.slurp(:close);
+		die "tar failed: $tar-err" unless $proc.exitcode == 0;
+
+		my IO::Path $cached = $cache.add(
+			"LLM-Classifiers-Emotions-binaries/$tag/$artifact");
+		$cached.parent.mkdir;
+		$src.add('release.tar.gz').rename($cached);
+		my Str $sha = $wrong-tarball-sha
+			?? '0' x 64
+			!! sha256-of($cached);
+		@lines.push: "$sha  $artifact";
+	}
+	write-file($sdist.add('resources/checksums.txt'),
+		@lines.join("\n") ~ "\n");
+
+	Map.new: (
+		:dist($sdist), :$data, :$cache,
+		:stage($data.add("LLM-Classifiers-Emotions/$tag")),
+	);
+}
+
+#| Run Build.build on a scratch area, captured. :from-hf sets
+#| LLM_EMOTIONS_FROM_HF. The release URL points at a closed local
+#| port, so a missing cache entry fails at once instead of
+#| reaching the network.
+sub run-build(Map:D $s, MockHF:D $api, Bool :$from-hf --> Map) {
+	temp %*ENV;
+	%*ENV<LLM_EMOTIONS_DATA_DIR>   = $s<data>.absolute;
+	%*ENV<LLM_EMOTIONS_CACHE_DIR>  = $s<cache>.absolute;
+	%*ENV<LLM_EMOTIONS_BINARY_URL> = 'http://127.0.0.1:9';
+	%*ENV<LLM_EMOTIONS_BINARY_ONLY>:delete;
+	%*ENV<LLM_EMOTIONS_FROM_HF>:delete;
+	%*ENV<LLM_EMOTIONS_FROM_HF> = '1' if $from-hf;
+	captured { Build.new(:hf-api($api)).build($s<dist>.absolute) };
+}
+
+sub request-for(Str:D $hf-path --> Str:D) {
+	"$model-id $hf-path $revision";
+}
+
+#| Passes when the captured Build run didn't die; otherwise shows
+#| the exception and everything Build wrote to stderr.
+sub lived-ok(Map:D $r, Str:D $desc) {
+	my $e = $r<exception>;
+	ok !$e.defined, $desc
+		or diag "Build died: {(try $e.message.Str) // $e.^name}\nstderr:\n$r<err>";
+}
+
+#| A MockHF holding the stand-in model files and, unless :!card,
+#| the model card (:card-text overrides its contents).
+sub mock-hf(Bool :$model, Bool :$card = True,
+		Str :$card-override --> MockHF:D) {
+	my %files;
+	if $model {
+		%files{%hf-path{$_}} = %model{$_} for @model-files;
+	}
+	%files<README.md> = $card-override // $card-text if $card;
+	MockHF.new(:%files);
+}
+
+#| Everything a staged dir should hold once Build has written the
+#| notices from the dist (and fetched the card).
+sub notices-from-dist-ok(IO::Path:D $stage, Str:D $label) {
+	subtest "$label: notices written from the dist" => {
+		plan 5;
+		for @licence-names -> Str $name {
+			my IO::Path $staged = $stage.add("LICENSES/$name");
+			ok $staged.f
+				&& $staged.slurp(:bin) eqv $resources.add("licenses/$name").slurp(:bin),
+				"LICENSES/$name is the dist's text, byte for byte";
+		}
+		is text-of($stage.add('THIRD-PARTY.md')), $expected-third-party,
+			'THIRD-PARTY.md is the rendered template';
+		is text-of($stage.add('MODEL-CARD.md')), $card-text,
+			'MODEL-CARD.md is the fetched model card';
+		my @everything = $stage.dir;
+		@everything.append: $stage.add('LICENSES').dir
+			if $stage.add('LICENSES').d;
+		is-deeply @everything.grep(*.basename.ends-with('.partial')).List, (),
+			'no .partial file left behind';
+	};
+}
+
+sub model-files-ok(IO::Path:D $stage, Str:D $label) {
+	subtest "$label: model files staged" => {
+		plan @model-files.elems;
+		for @model-files -> Str $name {
+			is text-of($stage.add($name)), %model{$name},
+				"$name staged";
+		}
+	};
+}
+
+my %full-tarball = |%model, |%shipped-notice;
+
+plan 12;
+
+# --- The dist's own notice sources ---------------------------------------
+
+subtest 'the dist ships its notice sources' => {
+	plan 9;
+	# Verbatim copies of Notcurses-Native's resources/licenses/
+	# texts; any edit to them is a mistake.
+	my %known =
+		'MIT.txt'        => 'b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5',
+		'Apache-2.0.txt' => 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30';
+	# Dotfiles aside, as Build and the workflow both skip them.
+	is-deeply $resources.add('licenses').dir.map(*.basename)
+			.grep({ !.starts-with('.') }).sort.List,
+		@licence-names.sort.List,
+		'resources/licenses holds exactly the MIT and Apache-2.0 texts';
+	for %known.sort -> (:key($name), :value($sha)) {
+		is sha256-of($resources.add("licenses/$name")), $sha,
+			"$name is the verbatim licence text";
+	}
+
+	my @meta-resources = from-json($dist.add('META6.json').slurp)<resources>.List;
+	is-deeply (|@licence-names.map({ "licenses/$_" }), 'THIRD-PARTY.md.in')
+			.grep({ $_ !(elem) @meta-resources }).List, (),
+		'META6 resources lists the licence texts and the template';
+
+	my Str $template = $resources.add('THIRD-PARTY.md.in').slurp;
+	ok $template.contains("`$revision`"),
+		'the template records the licence check against the pinned REVISION '
+		~ '(bump REVISION => re-check the licences and update the template)';
+	unlike $expected-third-party, / '@' <[A..Z _]>+ '@' /,
+		'the rendered template has no placeholder left';
+	is-deeply @licence-names.grep({ !$expected-third-party.contains("`$_`") }).List, (),
+		'THIRD-PARTY.md names every licence text it ships';
+	my @component-urls =
+		"https://huggingface.co/Cohee/distilbert-base-uncased-go-emotions-onnx/tree/$revision",
+		'https://huggingface.co/joeddav/distilbert-base-uncased-go-emotions-student',
+		'https://huggingface.co/distilbert/distilbert-base-uncased',
+		'https://huggingface.co/datasets/google-research-datasets/go_emotions';
+	is-deeply @component-urls.grep({ !$expected-third-party.contains($_) }).List, (),
+		'THIRD-PARTY.md links all four components';
+	ok $expected-third-party.contains("cohee-goemotions-$tag.tar.gz"),
+		'THIRD-PARTY.md names the release archive';
+};
+
+subtest 'render-third-party' => {
+	plan 6;
+	my $b = Build.new;
+	my Str $good-rev = 'a' x 40;
+	my Str $doc = (try $b.render-third-party(
+		"r=@REVISION@ t=@BINARY_TAG@ again=@REVISION@\n",
+		:revision($good-rev), :binary-tag('binaries-x-r1'))) // '(died)';
+	is $doc, "r=$good-rev t=binaries-x-r1 again=$good-rev\n",
+		'substitutes every @REVISION@ and @BINARY_TAG@';
+	throws-like {
+		$b.render-third-party('@NOPE@', :revision($good-rev),
+			:binary-tag('binaries-x'))
+	}, Exception, message => / 'unknown placeholder' .* '@NOPE@' /,
+		'an unknown placeholder dies';
+	throws-like {
+		$b.render-third-party('x', :revision('A' x 40), :binary-tag('binaries-x'))
+	}, Exception, message => / '40-character' /,
+		'an upper-case revision dies';
+	throws-like {
+		$b.render-third-party('x', :revision('a' x 39), :binary-tag('binaries-x'))
+	}, Exception, message => / '40-character' /,
+		'a short revision dies';
+	throws-like {
+		$b.render-third-party('x', :revision($good-rev), :binary-tag('cohee-r1'))
+	}, Exception, message => / 'is not a binaries-' /,
+		'a tag without the binaries- prefix dies';
+	throws-like {
+		$b.render-third-party('x', :revision($good-rev), :binary-tag('binaries-a/b'))
+	}, Exception, message => / 'is not a binaries-' /,
+		'a tag with a slash dies';
+};
+
+# --- Primary path ------------------------------------------------------
+
+subtest 'primary: a tarball with notices is staged as shipped' => {
+	plan 6;
+	my %s = scratch(:tarball(%full-tarball));
+	my MockHF $api = mock-hf();
+	my %r = run-build(%s.Map, $api);
+	lived-ok %r, 'build lives';
+	ok %r<result> === True, 'build returns True';
+	ok %s<stage>.add('.staged-ok').f, 'marker written';
+	model-files-ok(%s<stage>, 'primary');
+	subtest 'notices are the tarball\'s own' => {
+		plan %shipped-notice.elems;
+		for %shipped-notice.sort -> (:key($rel), :value($text)) {
+			is text-of(%s<stage>.add($rel)), $text, "$rel as shipped";
+		}
+	};
+	is-deeply $api.requests.List, (), 'nothing fetched from Hugging Face';
+};
+
+subtest 'primary: a tarball without notices gets them from the dist' => {
+	plan 5;
+	my %s = scratch(:tarball(%model));
+	my MockHF $api = mock-hf();
+	my %r = run-build(%s.Map, $api);
+	lived-ok %r, 'build lives';
+	ok %s<stage>.add('.staged-ok').f, 'marker written';
+	model-files-ok(%s<stage>, 'bare tarball');
+	notices-from-dist-ok(%s<stage>, 'bare tarball');
+	is-deeply $api.requests.List, (request-for('README.md'),),
+		'only the model card fetched, at the pinned revision';
+};
+
+subtest 'primary: model checksums still bite, notices are not checksummed' => {
+	plan 6;
+	# A model file that doesn't match checksums.txt: the tarball's
+	# own hash is right (recorded from it), the file inside isn't.
+	my %bad = %full-tarball;
+	%bad<model.onnx> = "tampered onnx bytes\n";
+	my %s = scratch(:tarball(%bad));
+	# Recorded hashes are of the stand-ins, so the tampered file
+	# must fail verification.
+	my %r = run-build(%s.Map, mock-hf());
+	ok %r<exception>.defined, 'build dies on a tampered model file';
+	like (%r<exception> // '').Str, / 'Checksum mismatch for model.onnx' /,
+		'with the per-file checksum error';
+	nok %s<stage>.add('.staged-ok').e, 'no marker written';
+
+	# A tarball whose own hash is wrong is refused, and the HF
+	# fallback stages the model and the notices instead.
+	my %t = scratch(:tarball(%full-tarball), :wrong-tarball-sha);
+	my MockHF $api = mock-hf(:model);
+	my %r2 = run-build(%t.Map, $api);
+	lived-ok %r2, 'a bad tarball hash falls back and lives';
+	like %r2<err>, / 'Tarball checksum mismatch' /, 'the mismatch is reported';
+	notices-from-dist-ok(%t<stage>, 'after a refused tarball');
+};
+
+# --- Hugging Face fallback --------------------------------------------
+
+subtest 'HF fallback stages the notices from the dist' => {
+	plan 5;
+	my %s = scratch();
+	my MockHF $api = mock-hf(:model);
+	my %r = run-build(%s.Map, $api, :from-hf);
+	lived-ok %r, 'build lives';
+	ok %s<stage>.add('.staged-ok').f, 'marker written';
+	model-files-ok(%s<stage>, 'HF fallback');
+	notices-from-dist-ok(%s<stage>, 'HF fallback');
+	is-deeply $api.requests.List,
+		(|@model-files.map({ request-for(%hf-path{$_}) }), request-for('README.md')),
+		'the three model files, then the model card, all at the pinned revision';
+};
+
+subtest 'HF fallback: the model card is best-effort' => {
+	plan 6;
+	my %s = scratch();
+	my %r = run-build(%s.Map, mock-hf(:model, :!card), :from-hf);
+	lived-ok %r, 'build lives without the card';
+	ok %s<stage>.add('.staged-ok').f, 'marker written';
+	nok %s<stage>.add('MODEL-CARD.md').e, 'no MODEL-CARD.md';
+	nok %s<stage>.add('MODEL-CARD.md.partial').e, 'no partial card left';
+	like %r<err>, / 'Could not fetch the model card' /, 'the failure is reported';
+	ok %s<stage>.add('THIRD-PARTY.md').f && %s<stage>.add('LICENSES/MIT.txt').f,
+		'the other notices are still staged';
+};
+
+subtest 'HF fallback: a model card failing its checksum is left out' => {
+	plan 4;
+	my %s = scratch();
+	my %r = run-build(%s.Map,
+		mock-hf(:model, :card-override("not the pinned card\n")), :from-hf);
+	lived-ok %r, 'build lives';
+	nok %s<stage>.add('MODEL-CARD.md').e, 'no MODEL-CARD.md';
+	nok %s<stage>.add('MODEL-CARD.md.partial').e, 'no partial card left';
+	like %r<err>, / 'Checksum mismatch for the model card' /,
+		'the mismatch is reported';
+};
+
+# --- An existing stage --------------------------------------------------
+
+subtest 'already staged: notices are topped up, the model is not re-fetched' => {
+	plan 4;
+	my %s = scratch();
+	# What an older Build left behind: marker + model, no notices.
+	write-file(%s<stage>.add($_), %model{$_}) for @model-files;
+	write-file(%s<stage>.add('.staged-ok'), "ok\n");
+	my MockHF $api = mock-hf();     # holds the card only
+	my %r = run-build(%s.Map, $api);
+	lived-ok %r, 'build lives';
+	like %r<out>, / 'already staged' /, 'takes the already-staged branch';
+	notices-from-dist-ok(%s<stage>, 'top-up');
+	is-deeply $api.requests.List, (request-for('README.md'),),
+		'only the model card fetched';
+};
+
+subtest 'already staged: notices that are there are kept' => {
+	plan 5;
+	my %s = scratch();
+	write-file(%s<stage>.add($_), %model{$_}) for @model-files;
+	write-file(%s<stage>.add('.staged-ok'), "ok\n");
+	write-file(%s<stage>.add('THIRD-PARTY.md'), %shipped-notice<THIRD-PARTY.md>);
+	write-file(%s<stage>.add('LICENSES/MIT.txt'), %shipped-notice<LICENSES/MIT.txt>);
+	my MockHF $api = mock-hf();
+	my %r = run-build(%s.Map, $api);
+	lived-ok %r, 'build lives';
+	is text-of(%s<stage>.add('THIRD-PARTY.md')), %shipped-notice<THIRD-PARTY.md>,
+		'THIRD-PARTY.md untouched';
+	is text-of(%s<stage>.add('LICENSES/MIT.txt')), %shipped-notice<LICENSES/MIT.txt>,
+		'LICENSES/MIT.txt untouched';
+	my IO::Path $apache = %s<stage>.add('LICENSES/Apache-2.0.txt');
+	ok $apache.f
+			&& $apache.slurp(:bin) eqv $resources.add('licenses/Apache-2.0.txt').slurp(:bin),
+		'the missing licence text is added';
+	is text-of(%s<stage>.add('MODEL-CARD.md')), $card-text,
+		'the missing model card is fetched';
+};
+
+subtest 'extraction clears a stale stage, directories included' => {
+	plan 5;
+	my %s = scratch(:tarball(%full-tarball));
+	# A stage left half-done (no marker): files, a stale licence
+	# directory and nested directories.
+	write-file(%s<stage>.add('stale.txt'), "stale\n");
+	write-file(%s<stage>.add('LICENSES/OLD.txt'), "old\n");
+	write-file(%s<stage>.add('nested/deeper/file.txt'), "deep\n");
+	my %r = run-build(%s.Map, mock-hf());
+	lived-ok %r, 'build lives';
+	nok %s<stage>.add('stale.txt').e, 'stale file removed';
+	nok %s<stage>.add('LICENSES/OLD.txt').e, 'stale licence text removed';
+	nok %s<stage>.add('nested').e, 'nested directories removed';
+	is text-of(%s<stage>.add('LICENSES/MIT.txt')), %shipped-notice<LICENSES/MIT.txt>,
+		'the tarball\'s LICENSES/ is what remains';
+};
+
+subtest 'dotfiles in resources/licenses are not licence texts' => {
+	plan 2;
+	my %s = scratch();
+	write-file(%s<dist>.add('resources/licenses/.DS_Store'), "finder\n");
+	my %r = run-build(%s.Map, mock-hf(:model), :from-hf);
+	lived-ok %r, 'build lives';
+	my IO::Path $licenses = %s<stage>.add('LICENSES');
+	is-deeply ($licenses.d ?? $licenses.dir.map(*.basename).sort.List !! ()),
+		@licence-names.sort.List,
+		'LICENSES/ holds the two texts and no .DS_Store';
+};

@@ -43,6 +43,8 @@ zef install LLM::Classifiers::Emotions
 
 At install time, `Build.rakumod` downloads three files (tokenizer.json, config.json, and a 68 MB quantized ONNX model) from the module's GitHub Release, verifies SHA256 against bundled checksums, and stages them under `$XDG_DATA_HOME/ LLM-Classifiers-Emotions/`. If the GitHub Release path fails (or if you set `LLM_EMOTIONS_FROM_HF=1`), it falls back to downloading directly from Cohee's HuggingFace repo at a pinned revision via `HuggingFace::API`.
 
+Beside the model files it stages their licence notices, whichever way they arrived: `THIRD-PARTY.md` (each upstream component with its licence, source and credit), `MODEL-CARD.md` (the model card at the pinned revision) and `LICENSES/` (the full MIT and Apache-2.0 texts). The model files are not covered by this module's Artistic-2.0 licence; see COPYRIGHT AND LICENSE below.
+
 No system-wide changes are made. `zef uninstall` leaves the staged model alone — remove it manually if you want the ~70 MB back.
 
 Environment variables
@@ -93,11 +95,11 @@ MODEL
 
   * **Source:** `Cohee/distilbert-base-uncased-go-emotions-onnx` on HuggingFace ([https://huggingface.co/Cohee/distilbert-base-uncased-go-emotions-onnx](https://huggingface.co/Cohee/distilbert-base-uncased-go-emotions-onnx)). The same model SillyTavern uses for its "expressions" feature.
 
-  * **Architecture:** DistilBERT-base-uncased (6 transformer layers, 66 M parameters), fine-tuned for sequence classification on the GoEmotions dataset.
+  * **Architecture:** DistilBERT-base-uncased (6 transformer layers, 66 M parameters). Cohee's export is an ONNX conversion of [joeddav/distilbert-base-uncased-go-emotions-student](https://huggingface.co/joeddav/distilbert-base-uncased-go-emotions-student), a student model *distilled* from a zero-shot NLI classifier, not fine-tuned on GoEmotions' human labels: the teacher labelled the unlabelled GoEmotions text, and the student learned from those pseudo-labels.
 
   * **Quantization:** int8 dynamic quantization. ~68 MB on disk vs. ~268 MB for the full-precision variant. Trivial accuracy difference for this task.
 
-  * **Training data:** [GoEmotions](https://aclanthology.org/2020.acl-main.372/) (Demszky et al, 2020) — ~58k English Reddit comments labelled for 27 emotion categories + "neutral".
+  * **Training data:** the text of [GoEmotions](https://aclanthology.org/2020.acl-main.372/) (Demszky et al, 2020) — ~58k English Reddit comments, used without their labels (see Architecture). GoEmotions defines the 27 emotion categories + "neutral" the model predicts.
 
   * **Revision pin:** `d22488bc83be87678f12eee8a3f65a65de94ef85`. The `BINARY_TAG` file at the dist root and `resources/REVISION` together pin the exact model weights shipped by this release. Bump both together when updating.
 
@@ -153,14 +155,16 @@ MODEL CREDIT
 
   * Cohee — ONNX / quantized conversion of the original model
 
+  * Joe Davison (joeddav) — the distilled go-emotions student model
+
   * Demszky et al (Google Research, 2020) — GoEmotions dataset
 
-  * HuggingFace — original DistilBERT base model
+  * HuggingFace — original DistilBERT base model (`distilbert/distilbert-base-uncased`)
 
 COPYRIGHT AND LICENSE
 =====================
 
 This Raku module is Copyright 2026 Matt Doughty, distributed under the Artistic License 2.0.
 
-The underlying model weights ship separately (pulled at install time) and are subject to their own licenses: MIT per Cohee's repo, inheriting from google/distilbert-base-uncased (Apache-2.0) and the GoEmotions corpus (CC BY 4.0).
+The underlying model weights ship separately (pulled at install time) and are subject to their own licenses: MIT for Cohee's ONNX conversion and for joeddav's student model; Apache-2.0 for the DistilBERT base model `distilbert/distilbert-base-uncased` (including its BERT vocabulary) and for the GoEmotions dataset.
 

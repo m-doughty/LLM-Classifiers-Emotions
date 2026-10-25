@@ -25,3 +25,11 @@
 d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66  tokenizer.json
 cc7b0c0672cfd8dd003bdf5b39e56935ea7a457c1952d1d4e4dd8b9b88530cab  config.json
 1a4a425c70f9dc0f2da1d0cacd6fc4c6008e85bb8961fe62de46bd9e44cde464  model.onnx
+
+# The model card: README.md in the HF repo at the same revision,
+# staged (and shipped in the tarball) as MODEL-CARD.md beside the
+# licence notices. hf-mirror.yml refuses to publish a card that
+# doesn't match, and Build.rakumod, when it fetches the card
+# itself, leaves out one that doesn't. The other notices are not
+# checksummed here: they come from this dist's own resources.
+6c9cb1b99a28f25eb97df03441fbfbe66db18375e64abdc9a1275bf9ff71d96a  MODEL-CARD.md

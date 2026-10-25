@@ -54,6 +54,13 @@ if you set C<LLM_EMOTIONS_FROM_HF=1>), it falls back to downloading
 directly from Cohee's HuggingFace repo at a pinned revision via
 C<HuggingFace::API>.
 
+Beside the model files it stages their licence notices, whichever
+way they arrived: C<THIRD-PARTY.md> (each upstream component with
+its licence, source and credit), C<MODEL-CARD.md> (the model card
+at the pinned revision) and C<LICENSES/> (the full MIT and
+Apache-2.0 texts). The model files are not covered by this
+module's Artistic-2.0 licence; see COPYRIGHT AND LICENSE below.
+
 No system-wide changes are made. C<zef uninstall> leaves the staged
 model alone — remove it manually if you want the ~70 MB back.
 
@@ -130,8 +137,12 @@ The same model SillyTavern uses for its "expressions" feature.
 
 =begin item
 B<Architecture:> DistilBERT-base-uncased (6 transformer layers, 66 M
-parameters), fine-tuned for sequence classification on the
-GoEmotions dataset.
+parameters). Cohee's export is an ONNX conversion of
+L<joeddav/distilbert-base-uncased-go-emotions-student|https://huggingface.co/joeddav/distilbert-base-uncased-go-emotions-student>,
+a student model I<distilled> from a zero-shot NLI classifier, not
+fine-tuned on GoEmotions' human labels: the teacher labelled the
+unlabelled GoEmotions text, and the student learned from those
+pseudo-labels.
 =end item
 
 =begin item
@@ -141,9 +152,11 @@ for this task.
 =end item
 
 =begin item
-B<Training data:> L<GoEmotions|https://aclanthology.org/2020.acl-main.372/>
-(Demszky et al, 2020) — ~58k English Reddit comments labelled for
-27 emotion categories + "neutral".
+B<Training data:> the text of
+L<GoEmotions|https://aclanthology.org/2020.acl-main.372/> (Demszky et
+al, 2020) — ~58k English Reddit comments, used without their labels
+(see Architecture). GoEmotions defines the 27 emotion categories +
+"neutral" the model predicts.
 =end item
 
 =begin item
@@ -218,8 +231,9 @@ change (the protocols and file formats are platform-neutral).
 
 =item Etch - original idea for the module
 =item Cohee — ONNX / quantized conversion of the original model
+=item Joe Davison (joeddav) — the distilled go-emotions student model
 =item Demszky et al (Google Research, 2020) — GoEmotions dataset
-=item HuggingFace — original DistilBERT base model
+=item HuggingFace — original DistilBERT base model (C<distilbert/distilbert-base-uncased>)
 
 =head1 COPYRIGHT AND LICENSE
 
@@ -227,8 +241,9 @@ This Raku module is Copyright 2026 Matt Doughty, distributed under
 the Artistic License 2.0.
 
 The underlying model weights ship separately (pulled at install
-time) and are subject to their own licenses: MIT per Cohee's repo,
-inheriting from google/distilbert-base-uncased (Apache-2.0) and
-the GoEmotions corpus (CC BY 4.0).
+time) and are subject to their own licenses: MIT for Cohee's ONNX
+conversion and for joeddav's student model; Apache-2.0 for the
+DistilBERT base model C<distilbert/distilbert-base-uncased>
+(including its BERT vocabulary) and for the GoEmotions dataset.
 
 =end pod
