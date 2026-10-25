@@ -17,7 +17,7 @@
 
 # Tarball sha256 produced by hf-mirror.yml CI run for
 # binaries-cohee-goemotions-d22488bc-r1.
-2257f061a740a4ad304d71e3ba70d2eff370d6cf5732003e4221364191774ca1  cohee-goemotions-binaries-cohee-goemotions-d22488bc-r1.tar.gz
+322798a3face6c83dfec3dc78f6b90cb5f37633f5284dfd74f5b4e3a0ab882c1  cohee-goemotions-binaries-cohee-goemotions-d22488bc-r1.tar.gz
 
 # Individual files (names match the layout inside the tarball AND
 # the filenames at HF, with onnx/model_quantized.onnx renamed to
