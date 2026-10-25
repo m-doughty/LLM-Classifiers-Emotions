@@ -2,6 +2,55 @@ Revision history for LLM::Classifiers::Emotions
 
 {{$NEXT}}
 
+0.1.8  2026-10-25T11:07:50Z
+
+    - The README's account of the model is corrected. Cohee's ONNX export
+      converts joeddav's distilbert-base-uncased-go-emotions-student, which
+      was distilled from a zero-shot NLI teacher on unlabelled GoEmotions
+      text, not fine-tuned on GoEmotions' labels. The base model is
+      distilbert/distilbert-base-uncased, and GoEmotions is Apache-2.0, not
+      CC BY 4.0. Joe Davison is now credited. The distribution also ships
+      its Artistic-2.0 LICENSE file, which it lacked.
+
+    - Requires HuggingFace::API 0.2.3 or later (to build). The exact 0.2.0
+      pin made installs fetch that old release even with a newer one
+      installed, and every HuggingFace::API before 0.2.3 still requires
+      the JSON::Fast that fails under the RakuAST frontend.
+
+    - Requires JSON::Fast 0.21.0 or later (zef:timo). 0.19 (cpan:TIMOTIMO)
+      fails its own tests under the RakuAST compiler frontend that Rakudo
+      2026.09 makes the default, so installing this distribution stopped
+      at that dependency.
+
+    - The model is now installed from this distribution's own GitHub
+      release, binaries-cohee-goemotions-d22488bc-r1, with Hugging Face as
+      the fallback. The release had never been published, so until now
+      every install downloaded from Hugging Face.
+
+    - The model mirror release built by hf-mirror.yml now carries the
+      licence notices its contents owe: THIRD-PARTY.md, listing each
+      upstream component with its licence, source and credit (Cohee's ONNX export and joeddav's student model, MIT; DistilBERT
+      with its BERT vocabulary and the GoEmotions dataset, Apache-2.0);
+      MODEL-CARD.md, the model card at the pinned revision; and LICENSES/
+      with the full MIT and Apache-2.0 texts. The release body says so. A
+      manual run of the workflow is now a dry run that uploads the tarball
+      as a workflow artifact: only a pushed binaries-* tag publishes.
+
+    - Installing stages the same notices beside the model files, whichever
+      way the model arrived. Notices from the release tarball are kept as
+      shipped. Otherwise THIRD-PARTY.md and LICENSES/ are written from the
+      distribution's resources, and the model card is fetched from Hugging
+      Face at the pinned revision and checked against its SHA-256 (if that
+      fails, the install warns and carries on without it). A model staged
+      by an earlier version gains its notices on the next install without
+      being downloaded again.
+
+    - Installing on Windows no longer trips over Unix tools. Replacing a
+      stale staged directory no longer shells out to `rm -rf`, which
+      Windows doesn't have, and the release archive is extracted by its
+      file name from its own directory, so a GNU tar ahead of Windows' own
+      on the PATH can't read the drive letter as a remote host name.
+
 0.1.7  2026-08-21T22:40:32+01:00
     - Require Tokenizers 0.3.0 (panic-free FFI boundary with typed errors).
 
@@ -37,7 +86,7 @@ Revision history for LLM::Classifiers::Emotions
       Was `ver<0.2.0+>` (invalid — the `+` suffix isn't part of
       Raku's identity syntax and zef couldn't resolve it). Now
       `ver<0.2.0>`, matching the pinned-exact convention every
-      other module in the monorepo uses (Cro::HTTP:ver<0.8.11>,
+      other module by this author uses (Cro::HTTP:ver<0.8.11>,
       JSON::Fast:ver<0.19>, etc.). Requires HuggingFace::API
       0.2.0 to be published to the ecosystem.
 
